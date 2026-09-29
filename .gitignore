@@ -1,0 +1,13 @@
+.cache
+.codelite
+.vscode
+Debug/
+resource/gb_bios.bin
+SDL2/
+compile_commands.json
+Makefile
+testcpp.mk
+testcpp.project
+testcpp.txt
+testcpp.workspace
+.DS_Store
