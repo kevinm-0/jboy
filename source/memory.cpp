@@ -10,12 +10,11 @@ void memory::test() {
 }
 
 void memory::output_memory(uint16_t location, uint16_t length) {
-	int i;
-	for (i = location; i < length; ++i)
-    {
-        SDL_Log(" %02x", gb_memory[i]);
+    for (int i = location; i < length; ++i) {
+        printf("%04x: %02x\n", i, gb_memory[i]);
     }
 }
+
 
 uint8_t memory::read_byte(uint16_t location) {
 	return gb_memory[location];

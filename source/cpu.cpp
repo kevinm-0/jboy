@@ -35,14 +35,19 @@ void cpu::load_bios() {
 			bios.close();
 			
 			gb_memory->write_buffer(buffer, size, 0x00);
-			//gb_memory->output_memory(0x0000, 0x0000);
+			gb_memory->output_memory(0x0000, 0x00FF);
 			//SDL_Log("guy : %x\n", gb_memory->read_byte(0x0000));
+			//*quit = true;
 		}
 		
 	}
 }
 
 void cpu::tick() {
+	if (gb_cpu_regs.pc > 0xFF) {
+		SDL_Log("We survived?");
+		*quit = true;
+	}
 	switch(gb_cpu_state) {
 		case CPU_STATE::FETCH_OPCODE:
 			SDL_Log("Current Insc: %02X (PC = %02X, SP = %02X)", gb_memory->read_byte(gb_cpu_regs.pc), gb_cpu_regs.pc.lo, gb_cpu_regs.sp.lo);	
@@ -156,16 +161,16 @@ void cpu::instruction_call() {
 		case op::LD_aHL_L: LD_r8_x16(gb_cpu_regs.hl.lo, gb_cpu_regs.hl, OPERAND_TYPE::r8); break;
 		case op::LD_aHL_A: LD_r8_x16(gb_cpu_regs.af.hi, gb_cpu_regs.hl, OPERAND_TYPE::r8); break;
 		
-		case op::LD_aHL_d8: LD_r8_x16(gb_cpu_regs.hl, 0x00, OPERAND_TYPE::imm8); break;
+		case op::LD_aHL_d8: LD_r8_x16(gb_cpu_regs.wz.lo, gb_cpu_regs.hl, OPERAND_TYPE::imm8); break; // dummy reg passed in
 		
 		case op::LD_aBC_A: LD_r8_x16(gb_cpu_regs.af.hi, gb_cpu_regs.bc, OPERAND_TYPE::r8); break;
 		case op::LD_aDE_A: LD_r8_x16(gb_cpu_regs.af.hi, gb_cpu_regs.de, OPERAND_TYPE::r8); break;
 		case op::LD_aHLI_A: LD_r8_x16(gb_cpu_regs.af.hi, gb_cpu_regs.hl, OPERAND_TYPE::r8inc); break;
-		case op::LD_aHLD_A: LD_r8_x16(gb_cpu_regs.af.hi, gb_cpu_regs.hl.hi, OPERAND_TYPE::r8dec); break;
+		case op::LD_aHLD_A: LD_r8_x16(gb_cpu_regs.af.hi, gb_cpu_regs.hl, OPERAND_TYPE::r8dec); break;
 		
 		case op::BIT_7_H: BIT_x_r(7, gb_cpu_regs.hl.hi); break;
 		
-		case op::JR_NZ_s8: JR(gb_cpu_regs.af.z()); break;
+		case op::JR_NZ_s8: JR(gb_cpu_regs.af.z() == 0); break;
 		
 		case op::INC_B: INC_r8(gb_cpu_regs.bc.hi); break;
 		case op::INC_D: INC_r8(gb_cpu_regs.de.hi); break;
@@ -215,6 +220,24 @@ void cpu::instruction_call() {
 		
 		case op::g_RET: RET(); break;
 		
+		case op::CP_B: CMP_x8(gb_cpu_regs.bc.hi, OPERAND_TYPE::r8); break;
+		case op::CP_C: CMP_x8(gb_cpu_regs.bc.lo, OPERAND_TYPE::r8); break;
+		case op::CP_D: CMP_x8(gb_cpu_regs.de.hi, OPERAND_TYPE::r8); break;
+		case op::CP_E: CMP_x8(gb_cpu_regs.de.lo, OPERAND_TYPE::r8); break;
+		case op::CP_H: CMP_x8(gb_cpu_regs.hl.hi, OPERAND_TYPE::r8); break;
+		case op::CP_L: CMP_x8(gb_cpu_regs.hl.lo, OPERAND_TYPE::r8); break;
+		case op::CP_A: CMP_x8(gb_cpu_regs.af.hi, OPERAND_TYPE::r8); break;
+		
+		case op::CP_d8: CMP_x8(gb_cpu_regs.af.lo, OPERAND_TYPE::imm8); break; // reg passed in doesn't matter lol
+		case op::LD_aA16_A: LD_r8_x16(gb_cpu_regs.af.hi, 0x00, OPERAND_TYPE::imm16); break;
+		
+		case op::JR_NC_s8: JR(gb_cpu_regs.af.c() == 0); break;
+		case op::JR_Z_s8: JR(gb_cpu_regs.af.z()); break;
+		case op::JR_CY_s8: JR(gb_cpu_regs.af.c()); break;
+		case op::JR_s8: JR(0); break;
+		
+		case op::LD_A_aA8: LD_x16_r8(gb_cpu_regs.af.hi, 0x00, OPERAND_TYPE::imm8mem); break; // operand doesnt matter...
+		
 		default: unimplemented_instruction();
 	}
 }
@@ -222,7 +245,7 @@ void cpu::instruction_call() {
 void cpu::JR(bool flag) {
 	//SDL_Log("flag : %d", flag);
 	gb_cpu_current_instruction.cycles -= 1;
-	if (!flag) {
+	if (flag || gb_cpu_current_instruction.operation == op::JR_s8) {
 		if (gb_cpu_current_instruction.cycles == 0) {
 			int8_t jmp = gb_memory->read_byte(gb_cpu_regs.pc);
 			gb_cpu_regs.pc = gb_cpu_regs.pc + jmp;
@@ -370,6 +393,11 @@ Instruction cpu::get_instruction_data() {
 			insc.cycles = 1;
 			insc.operand_type = OPERAND_TYPE::imm8;
 			break;
+		case 0x18:
+			insc.operation = op::JR_s8;
+			insc.cycles = 3;
+			insc.operand_type = OPERAND_TYPE::imm8;
+			break;
 		case 0x1A:
 			insc.operation = op::LD_A_aDE;
 			insc.cycles = 2;
@@ -425,6 +453,11 @@ Instruction cpu::get_instruction_data() {
 			insc.cycles = 2;
 			insc.operand_type = OPERAND_TYPE::imm8;
 			break;
+		case 0x28:
+			insc.operation = op::JR_Z_s8;
+			insc.cycles = 3;
+			insc.operand_type = OPERAND_TYPE::imm8;
+			break;
 		case 0x2C:
 			insc.operation = op::INC_L;
 			insc.cycles = 1;
@@ -438,6 +471,11 @@ Instruction cpu::get_instruction_data() {
 		case 0x2E:
 			insc.operation = op::LD_L_d8;
 			insc.cycles = 2;
+			insc.operand_type = OPERAND_TYPE::imm8;
+			break;
+		case 0x30:
+			insc.operation = op::JR_NC_s8;
+			insc.cycles = 3;
 			insc.operand_type = OPERAND_TYPE::imm8;
 			break;
 		case 0x31:
@@ -457,6 +495,11 @@ Instruction cpu::get_instruction_data() {
 			break;
 		case 0x36:
 			insc.operation = op::LD_aHL_d8;
+			insc.cycles = 3;
+			insc.operand_type = OPERAND_TYPE::imm8;
+			break;
+		case 0x38:
+			insc.operation = op::JR_CY_s8;
 			insc.cycles = 3;
 			insc.operand_type = OPERAND_TYPE::imm8;
 			break;
@@ -795,6 +838,41 @@ Instruction cpu::get_instruction_data() {
 			insc.cycles = 1;
 			insc.operand_type = OPERAND_TYPE::r8;
 			break;
+		case 0xB8:
+			insc.operation = op::CP_B;
+			insc.cycles = 1;
+			insc.operand_type = OPERAND_TYPE::r8;
+			break;
+		case 0xB9:
+			insc.operation = op::CP_C;
+			insc.cycles = 1;
+			insc.operand_type = OPERAND_TYPE::r8;
+			break;
+		case 0xBA:
+			insc.operation = op::CP_D;
+			insc.cycles = 1;
+			insc.operand_type = OPERAND_TYPE::r8;
+			break;
+		case 0xBB:
+			insc.operation = op::CP_E;
+			insc.cycles = 1;
+			insc.operand_type = OPERAND_TYPE::r8;
+			break;
+		case 0xBC:
+			insc.operation = op::CP_H;
+			insc.cycles = 1;
+			insc.operand_type = OPERAND_TYPE::r8;
+			break;
+		case 0xBD:
+			insc.operation = op::CP_L;
+			insc.cycles = 1;
+			insc.operand_type = OPERAND_TYPE::r8;
+			break;
+		case 0xBF:
+			insc.operation = op::CP_A;
+			insc.cycles = 1;
+			insc.operand_type = OPERAND_TYPE::r8;
+			break;
 		case 0xC1:
 			insc.operation = op::POP_BC;
 			insc.cycles = 3;
@@ -849,6 +927,16 @@ Instruction cpu::get_instruction_data() {
 			insc.cycles = 4;
 			insc.operand_type = OPERAND_TYPE::r16;
 			break;
+		case 0xEA:
+			insc.operation = op::LD_aA16_A;
+			insc.cycles = 4;
+			insc.operand_type = OPERAND_TYPE::imm16;
+			break;
+		case 0xF0:
+			insc.operation = op::LD_A_aA8;
+			insc.cycles = 3;
+			insc.operand_type = OPERAND_TYPE::imm8mem;
+			break;
 		case 0xF1:
 			insc.operation = op::POP_AF;
 			insc.cycles = 3;
@@ -858,6 +946,11 @@ Instruction cpu::get_instruction_data() {
 			insc.operation = op::PUSH_AF;
 			insc.cycles = 4;
 			insc.operand_type = OPERAND_TYPE::r16;
+			break;
+		case 0xFE:
+			insc.operation = op::CP_d8;
+			insc.cycles = 2;
+			insc.operand_type = OPERAND_TYPE::imm8;
 			break;
 		default:
 			insc.operation = op::unimplemented;
@@ -950,6 +1043,22 @@ void cpu::LD_x16_r8(uint8_t& reg, uint16_t operand, OPERAND_TYPE op_type) {
 				gb_cpu_state = CPU_STATE::FETCH_OPCODE;
 			}
 			break;
+		case OPERAND_TYPE::imm8mem:
+			switch(gb_cpu_current_instruction.cycles) {
+				case (2):
+					gb_cpu_regs.wz = 0xFF00 + gb_memory->read_byte(gb_cpu_regs.pc);
+					break;
+				case (1):
+					gb_cpu_regs.af.hi = gb_memory->read_byte(gb_cpu_regs.wz);
+					break;
+				case (0):
+					gb_cpu_regs.pc = gb_cpu_regs.pc + 1;
+					gb_cpu_state = CPU_STATE::FETCH_OPCODE;
+					break;
+				default:
+					SDL_Log("Doesn't work... imm8mem has fell through");
+			}
+			break;
 		default:
 			SDL_Log("Operand type for LD_stk not implemented yet!");
 			*quit = true;
@@ -978,7 +1087,7 @@ void cpu::LD_x16_r16(RegisterPair& reg, uint16_t operand, OPERAND_TYPE op_type) 
 	gb_cpu_regs.pc = gb_cpu_regs.pc + 1;
 }
 //ld r8 into x16
-void cpu::LD_r8_x16(uint16_t location, uint8_t reg, OPERAND_TYPE op_type) {
+void cpu::LD_r8_x16(uint8_t& reg, uint16_t location, OPERAND_TYPE op_type) {
 	gb_cpu_current_instruction.cycles -= 1;
 	switch(op_type) {
 		case OPERAND_TYPE::r8:
@@ -991,6 +1100,7 @@ void cpu::LD_r8_x16(uint16_t location, uint8_t reg, OPERAND_TYPE op_type) {
 		case OPERAND_TYPE::r8inc:
 			if (gb_cpu_current_instruction.cycles == 0) {
 				gb_memory->write_byte(location, reg);
+				SDL_Log("Writing %02X to %02X", reg, location);
 				gb_cpu_regs.hl = gb_cpu_regs.hl + 1;
 				gb_cpu_state = CPU_STATE::FETCH_OPCODE;
 			}
@@ -1011,6 +1121,21 @@ void cpu::LD_r8_x16(uint16_t location, uint8_t reg, OPERAND_TYPE op_type) {
 				gb_cpu_regs.pc = gb_cpu_regs.pc + 1;
 			}
 			break;
+		case OPERAND_TYPE::imm16:
+			switch(gb_cpu_current_instruction.cycles) {
+				case (2):
+					gb_cpu_regs.wz.hi = gb_memory->read_byte(gb_cpu_regs.pc);
+					break;
+				case (1):
+					gb_cpu_regs.wz.lo = gb_memory->read_byte(gb_cpu_regs.pc + 1);
+					break;
+				case (0):
+					gb_memory->write_byte(gb_cpu_regs.wz, reg);
+					gb_cpu_regs.pc = gb_cpu_regs. pc + 2;
+					gb_cpu_state = CPU_STATE::FETCH_OPCODE;
+					break;
+			}
+			break;
 		default:
 			SDL_Log("Operand type for LD_x16_r16 not implemented yet!");
 			*quit = true;
@@ -1027,13 +1152,23 @@ void cpu::BIT_x_r(int bit, uint8_t reg) {
 }
 
 void cpu::INC_r8(uint8_t& reg) {
-	reg += 1;
+	uint8_t old = reg;
+    reg++;
+	
+	gb_cpu_regs.af.z(reg == 0);
+	gb_cpu_regs.af.n(false);
+	gb_cpu_regs.af.h((old & 0x0F) == 0x0F);
 	gb_cpu_state = CPU_STATE::FETCH_OPCODE;
 	//*quit = true;
 }
 
 void cpu::DEC_r8(uint8_t& reg) {
-	reg += 1;
+	uint8_t old = reg;
+    reg--;
+	
+	gb_cpu_regs.af.z(reg == 0);
+	gb_cpu_regs.af.n(true);
+	gb_cpu_regs.af.h(old & 0x0F);
 	gb_cpu_state = CPU_STATE::FETCH_OPCODE;
 	//*quit = true;
 }
@@ -1059,9 +1194,11 @@ void cpu::INC_r16(RegisterPair& reg, OPERAND_TYPE op_type) {
 
 void cpu::CALL() {
 	//cycle 6 get opcode, cycle 5, get next byte, cycle 4 get last byte, cycle 3, do logic but dont enumerate pc
+	
 	gb_cpu_current_instruction.cycles -= 1;
 	switch (gb_cpu_current_instruction.cycles) {
 		case (4):
+			SDL_Log("Function called!!");
 			gb_cpu_regs.wz.lo = gb_memory->read_byte(gb_cpu_regs.pc);
 			gb_cpu_regs.pc = gb_cpu_regs.pc + 1;
 			break;
@@ -1073,7 +1210,11 @@ void cpu::CALL() {
 			gb_cpu_regs.pc = gb_cpu_regs.pc + 1;
 			break;
 		case (1):
-			gb_cpu_regs.sp = gb_cpu_regs.pc; 
+			gb_cpu_regs.sp = gb_cpu_regs.sp - 1;
+			gb_memory->write_byte(gb_cpu_regs.sp, gb_cpu_regs.pc.hi);
+
+			gb_cpu_regs.sp = gb_cpu_regs.sp - 1;
+			gb_memory->write_byte(gb_cpu_regs.sp, gb_cpu_regs.pc.lo);
 			break;
 		case (0):
 			gb_cpu_regs.pc = gb_cpu_regs.wz;
@@ -1153,11 +1294,26 @@ void cpu::RET() {
 			break;
 		case (0):
 			gb_cpu_regs.sp = gb_cpu_regs.sp + 2;
-			gb_cpu_regs.pc = gb_cpu_regs.pc;
 			gb_cpu_state = CPU_STATE::FETCH_OPCODE;
 			break;
 		default:
 			SDL_Log("Ret fell through?!");
 			*quit = true;
 	}
+}
+
+void cpu::CMP_x8(uint8_t& reg, OPERAND_TYPE operand_type) {
+	switch(operand_type) {
+		case OPERAND_TYPE::r8:
+			gb_cpu_regs.af.z(gb_cpu_regs.af.hi - reg == 0);
+			break;
+		case OPERAND_TYPE::imm8:
+			gb_cpu_regs.af.z(gb_cpu_regs.af.hi - gb_memory->read_byte(gb_cpu_regs.pc) == 0);
+			break;
+		default:
+			SDL_Log("Unknown operand for CMP");
+			*quit = true;
+	}
+	gb_cpu_regs.pc = gb_cpu_regs.pc + 1;
+	gb_cpu_state = CPU_STATE::FETCH_OPCODE;
 }

@@ -151,7 +151,21 @@ enum class op {
 	INC_DE,
 	INC_HL,
 	INC_SP,
-	g_RET
+	g_RET,
+	CP_B,
+	CP_C,
+	CP_D,
+	CP_E,
+	CP_H,
+	CP_L,
+	CP_A,
+	CP_d8,
+	LD_aA16_A,
+	JR_NC_s8,
+	JR_Z_s8,
+	JR_CY_s8,
+	JR_s8,
+	LD_A_aA8
 };
 
 
@@ -231,7 +245,7 @@ private:
 	void LD_x8_r8(uint8_t& reg, uint8_t operand, OPERAND_TYPE op_type);
 	void LD_x16_r8(uint8_t& reg, uint16_t operand, OPERAND_TYPE op_type);
 	void LD_x16_r16(RegisterPair& reg, uint16_t operand, OPERAND_TYPE op_type);
-	void LD_r8_x16(uint16_t location, uint8_t reg, OPERAND_TYPE op_type);
+	void LD_r8_x16(uint8_t& reg, uint16_t location, OPERAND_TYPE op_type);
 	void BIT_x_r(int bit, uint8_t reg);
 	void JR(bool flag);
 	void INC_r8(uint8_t& reg); // only used to enumerate a single reg, i.e no need for op type
@@ -244,6 +258,7 @@ private:
 	void POP(RegisterPair& reg);
 	void ROTATE_LEFT_THROUGH_CARRY_r8(uint8_t& reg, OPERAND_TYPE op_type);
 	void RET();
+	void CMP_x8(uint8_t& reg, OPERAND_TYPE op_type);
 public:
 	cpu(memory* gb_mem_location, bool* process_quit);
 	Instruction get_instruction_data();
